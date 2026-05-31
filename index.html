@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识遗忘曲线追踪</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-50 font-sans">
+    <nav class="bg-blue-700 text-white p-4 shadow-lg">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <h1 class="text-xl font-bold"><i class="fa fa-brain mr-2"></i>知识遗忘曲线追踪</h1>
+            <div class="space-x-4 text-sm">
+                <button onclick="showTab('dashboard')" class="tab-btn px-3 py-1 rounded bg-blue-500">仪表盘</button>
+                <button onclick="showTab('add')" class="tab-btn px-3 py-1 rounded hover:bg-blue-500"><i class="fa fa-plus"></i> 新增学习</button>
+                <button onclick="showTab('review')" class="tab-btn px-3 py-1 rounded hover:bg-blue-500">复习列表</button>
+                <button onclick="showTab('stats')" class="tab-btn px-3 py-1 rounded hover:bg-blue-500">统计</button>
+                <button onclick="showTab('efficiency')" class="tab-btn px-3 py-1 rounded hover:bg-blue-500">效率分析</button>
+                <button onclick="showTab('anki')" class="tab-btn px-3 py-1 rounded hover:bg-blue-500"><i class="fa fa-exchange"></i> Anki</button>
+            </div>
+        </div>
+    </nav>
+    <div class="max-w-5xl mx-auto p-4">
+        <!-- 学习统计卡片 -->
+        <div class="bg-white rounded-xl shadow p-4 mb-6">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-bold"><i class="fa fa-bell mr-2 text-blue-600"></i>今日提醒</h3>
+                <button onclick="requestNotification()" id="notifBtn" class="text-sm px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"><i class="fa fa-bell-o"></i> 开启通知</button>
+            </div>
+            <div id="todayReminder" class="text-sm text-gray-600"></div>
+        </div>
+
+        <div id="tab-dashboard" class="tab-content">
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+                <div class="bg-white rounded-xl shadow p-5 text-center"><div class="text-gray-500 text-sm">学习条目</div><div id="totalItems" class="text-2xl font-bold text-blue-600">0</div></div>
+                <div class="bg-white rounded-xl shadow p-5 text-center"><div class="text-gray-500 text-sm">今日复习</div><div id="todayReview" class="text-2xl font-bold text-purple-600">0</div></div>
+                <div class="bg-white rounded-xl shadow p-5 text-center"><div class="text-gray-500 text-sm">掌握率</div><div id="masterRate" class="text-2xl font-bold text-green-600">-</div></div>
+                <div class="bg-white rounded-xl shadow p-5 text-center"><div class="text-gray-500 text-sm">待复习</div><div id="pendingCount" class="text-2xl font-bold text-orange-600">0</div></div>
+                <div class="bg-white rounded-xl shadow p-5 text-center"><div class="text-gray-500 text-sm">已掌握</div><div id="masteredCount" class="text-2xl font-bold text-emerald-600">0</div></div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div class="bg-white rounded-xl shadow p-5"><h3 class="font-bold mb-3"><i class="fa fa-line-chart mr-2 text-blue-600"></i>艾宾浩斯遗忘曲线</h3><canvas id="curveChart" height="200"></canvas></div>
+                <div class="bg-white rounded-xl shadow p-5"><h3 class="font-bold mb-3"><i class="fa fa-bar-chart mr-2 text-blue-600"></i>学习内容分布</h3><canvas id="catChart" height="200"></canvas></div>
+            </div>
+            <div class="bg-white rounded-xl shadow p-5 mb-6">
+                <h3 class="font-bold mb-3"><i class="fa fa-chart-area mr-2 text-blue-600"></i>个人掌握度预测曲线</h3>
+                <canvas id="predictChart" height="180"></canvas>
+            </div>
+            <div class="bg-white rounded-xl shadow p-5">
+                <h3 class="font-bold mb-4"><i class="fa fa-list mr-2 text-blue-600"></i>所有学习条目</h3>
+                <div id="itemList" class="space-y-2"></div>
+            </div>
+        </div>
+        <div id="tab-add" class="tab-content hidden">
+            <div class="bg-white rounded-xl shadow p-6 max-w-lg mx-auto">
+                <h3 class="font-bold mb-4"><i class="fa fa-plus-circle mr-2 text-blue-600"></i>新增学习内容</h3>
+                <div class="space-y-4">
+                    <div><label class="block text-sm text-gray-600 mb-1">学习内容 *</label><input type="text" id="learnTitle" class="w-full border rounded p-2" placeholder="如：React Hooks 用法"></div>
+                    <div><label class="block text-sm text-gray-600 mb-1">分类</label><select id="learnCat" class="w-full border rounded p-2"><option value="编程">编程</option><option value="语言">语言</option><option value="设计">设计</option><option value="商业">商业</option><option value="写作">写作</option><option value="其他">其他</option></select></div>
+                    <div><label class="block text-sm text-gray-600 mb-1">学习日期</label><input type="date" id="learnDate" class="w-full border rounded p-2"></div>
+                    <div><label class="block text-sm text-gray-600 mb-1">难度估计 (1-10)</label><input type="range" id="learnDifficulty" min="1" max="10" value="5" class="w-full" oninput="document.getElementById('diffVal').textContent=this.value"><span class="text-sm text-gray-500" id="diffVal">5</span></div>
+                    <div><label class="block text-sm text-gray-600 mb-1">笔记/备注</label><textarea id="learnNote" rows="3" class="w-full border rounded p-2" placeholder="可记录学习要点..."></textarea></div>
+                    <button onclick="addItem()" class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700"><i class="fa fa-save mr-2"></i>保存</button>
+                </div>
+            </div>
+        </div>
+        <div id="tab-review" class="tab-content hidden">
+            <div class="bg-white rounded-xl shadow p-6">
+                <h3 class="font-bold mb-4"><i class="fa fa-calendar-check mr-2 text-blue-600"></i>复习提醒（SM-2算法）</h3>
+                <p class="text-sm text-gray-500 mb-4">采用SuperMemo SM-2算法，根据你的复习表现自动调整下次复习间隔。</p>
+                <div id="reviewList" class="space-y-3"></div>
+            </div>
+        </div>
+        <div id="tab-stats" class="tab-content hidden">
+            <div class="bg-white rounded-xl shadow p-6">
+                <h3 class="font-bold mb-4"><i class="fa fa-chart-bar mr-2 text-blue-600"></i>学习统计</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <div class="p-4 bg-blue-50 rounded-xl text-center"><div class="text-xs text-gray-500">总复习次数</div><div id="totalReviews" class="text-xl font-bold text-blue-700">0</div></div>
+                    <div class="p-4 bg-green-50 rounded-xl text-center"><div class="text-xs text-gray-500">平均记忆保留</div><div id="avgRetention" class="text-xl font-bold text-green-700">-</div></div>
+                    <div class="p-4 bg-purple-50 rounded-xl text-center"><div class="text-xs text-gray-500">平均间隔天数</div><div id="avgInterval" class="text-xl font-bold text-purple-700">-</div></div>
+                    <div class="p-4 bg-amber-50 rounded-xl text-center"><div class="text-xs text-gray-500">最长间隔</div><div id="maxInterval" class="text-xl font-bold text-amber-700">-</div></div>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-4">
+                    <h4 class="font-bold mb-2 text-sm">复习间隔分布</h4>
+                    <div id="intervalDist" class="text-sm"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 效率分析面板 -->
+        <div id="tab-efficiency" class="tab-content hidden">
+            <div class="bg-white rounded-xl shadow p-6">
+                <h3 class="font-bold mb-4"><i class="fa fa-bolt mr-2 text-yellow-600"></i>学习效率分析报告</h3>
+                <div id="efficiencyReport" class="space-y-4"></div>
+            </div>
+        </div>
+
+        <!-- Anki导入/导出面板 -->
+        <div id="tab-anki" class="tab-content hidden">
+            <div class="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto">
+                <h3 class="font-bold mb-4"><i class="fa fa-exchange mr-2 text-blue-600"></i>Anki格式导入/导出</h3>
+                <p class="text-sm text-gray-500 mb-4">兼容Anki文本格式（制表符分隔），支持学习进度与复习记录的导入导出。</p>
+
+                <!-- 导出区域 -->
+                <div class="border border-gray-200 rounded-lg p-4 mb-4">
+                    <h4 class="font-semibold mb-2"><i class="fa fa-download text-green-600 mr-1"></i>导出到Anki</h4>
+                    <p class="text-xs text-gray-500 mb-3">将当前学习条目导出为Anki兼容的文本格式，可在Anki中导入使用。</p>
+                    <div class="flex gap-2">
+                        <button onclick="exportAnkiFormat()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"><i class="fa fa-download mr-1"></i>导出Anki格式</button>
+                        <button onclick="copyAnkiExport()" class="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200"><i class="fa fa-copy mr-1"></i>复制到剪贴板</button>
+                    </div>
+                    <textarea id="ankiExportArea" class="w-full mt-3 border rounded p-2 text-xs font-mono h-32 bg-gray-50" placeholder="点击导出后，内容将显示在此处..." readonly></textarea>
+                </div>
+
+                <!-- 导入区域 -->
+                <div class="border border-gray-200 rounded-lg p-4">
+                    <h4 class="font-semibold mb-2"><i class="fa fa-upload text-blue-600 mr-1"></i>从Anki导入</h4>
+                    <p class="text-xs text-gray-500 mb-3">粘贴或上传Anki导出的文本格式，自动解析为学习条目。</p>
+                    <div class="mb-3">
+                        <label class="block text-xs text-gray-600 mb-1">格式说明：每行一条，字段用制表符分隔</label>
+                        <code class="text-xs bg-gray-100 px-2 py-1 rounded">标题 [Tab] 分类 [Tab] 学习日期 [Tab] 难度 [Tab] ef [Tab] interval [Tab] reps [Tab] nextReview</code>
+                    </div>
+                    <textarea id="ankiImportArea" class="w-full border rounded p-2 text-xs font-mono h-32" placeholder="粘贴Anki格式数据，或上传文件..."></textarea>
+                    <div class="flex gap-2 mt-3">
+                        <input type="file" id="ankiFileInput" accept=".txt,.csv" class="hidden" onchange="loadAnkiFile(this)">
+                        <button onclick="document.getElementById('ankiFileInput').click()" class="bg-gray-100 text-gray-700 px-4 py-2 rounded hover:bg-gray-200"><i class="fa fa-file-text-o mr-1"></i>选择文件</button>
+                        <button onclick="importAnkiFormat()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"><i class="fa fa-upload mr-1"></i>导入数据</button>
+                    </div>
+                </div>
+
+                <div class="mt-4 bg-blue-50 rounded-lg p-3">
+                    <h4 class="font-semibold text-sm text-blue-800 mb-1"><i class="fa fa-info-circle mr-1"></i>Anki兼容说明</h4>
+                    <ul class="text-xs text-blue-700 space-y-1">
+                        <li>导出格式为Anki文本格式，可通过Anki的"导入"功能导入</li>
+                        <li>导入时会自动识别制表符分隔的字段，并初始化SM-2参数</li>
+                        <li>难度、ef、interval等SM-2参数会被保留，确保复习进度连续</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const CATEGORIES = ['编程', '语言', '设计', '商业', '写作', '其他'];
+        const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#9ca3af'];
+        let items = JSON.parse(localStorage.getItem('studyItems') || '[]');
+        let curveChartInstance, catChartInstance, predictChartInstance;
+
+        function save() { localStorage.setItem('studyItems', JSON.stringify(items)); }
+
+        function showTab(name) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.className = 'tab-btn px-3 py-1 rounded hover:bg-blue-500');
+            document.getElementById('tab-' + name).classList.remove('hidden');
+            if (name === 'review') renderReview(); else if (name === 'dashboard') renderDashboard(); else if (name === 'stats') renderStats(); else if (name === 'efficiency') renderEfficiency(); else if (name === 'anki') renderAnkiPanel();
+        }
+
+        // ====== SM-2算法实现 ======
+        // 参数：quality (0-5), ef (easy factor), interval (当前间隔), reps (复习次数)
+        function sm2Calculate(quality, ef, interval, reps) {
+            // quality: 0-完全忘记, 1-艰难想起, 2-错误但记得, 3-正确但费力, 4-正确轻松, 5-完美
+            if (quality < 3) {
+                // 失败：重置
+                reps = 0;
+                interval = 1;
+            } else {
+                // 成功：增加间隔
+                if (reps === 0) interval = 1;
+                else if (reps === 1) interval = 6;
+                else interval = Math.round(interval * ef);
+                reps++;
+            }
+            // 更新ef
+            ef = ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+            ef = Math.max(1.3, Math.min(2.5, ef));
+            return { ef, interval, reps };
+        }
+
+        function addItem() {
+            const title = document.getElementById('learnTitle').value.trim();
+            const cat = document.getElementById('learnCat').value;
+            const date = document.getElementById('learnDate').value;
+            const note = document.getElementById('learnNote').value.trim();
+            const difficulty = parseInt(document.getElementById('learnDifficulty').value);
+            if (!title || !date) { alert('请填写学习内容和日期'); return; }
+            // SM-2初始参数
+            const ef = 2.5 - 0.1 * difficulty; // 根据难度调整初始ef
+            items.push({
+                id: Date.now(),
+                title,
+                category: cat,
+                date,
+                note,
+                difficulty,
+                ef: Math.max(1.3, ef),
+                interval: 0,
+                reps: 0,
+                nextReview: date,
+                qualityHistory: []
+            });
+            save(); renderDashboard();
+            document.getElementById('learnTitle').value = ''; document.getElementById('learnNote').value = '';
+            showTab('dashboard');
+        }
+
+        function deleteItem(id) { items = items.filter(i => i.id !== id); save(); renderDashboard(); }
+
+        // 复习评分（0-5）
+        function markReview(id, quality) {
+            const item = items.find(i => i.id === id);
+            if (item) {
+                const today = new Date().toISOString().slice(0, 10);
+                const oldEf = item.ef || 2.5;
+                const oldInterval = item.interval || 0;
+                const oldReps = item.reps || 0;
+                const { ef, interval, reps } = sm2Calculate(quality, oldEf, oldInterval, oldReps);
+                item.ef = ef;
+                item.interval = interval;
+                item.reps = reps;
+                item.qualityHistory.push({ date: today, quality });
+                item.lastReview = today;
+                // 计算下次复习日期
+                const nextDate = new Date();
+                nextDate.setDate(nextDate.getDate() + interval);
+                item.nextReview = nextDate.toISOString().slice(0, 10);
+                save(); renderReview(); renderDashboard();
+                showToast(`评分 ${quality} 分，下次复习间隔 ${interval} 天`);
+            }
+        }
+
+        function getNextReviewStatus(item) {
+            const today = new Date();
+            const nextReview = new Date(item.nextReview || item.date);
+            const daysUntil = Math.floor((nextReview - today) / (1000 * 60 * 60 * 24));
+
+            // 已掌握：间隔大于30天且reps>=5
+            if (item.interval >= 30 && item.reps >= 5) return { status: 'mastered', label: '已掌握', color: 'bg-green-100 text-green-700', days: daysUntil };
+            // 过期：超过下次复习日期
+            if (daysUntil < 0) return { status: 'overdue', label: '逾期' + Math.abs(daysUntil) + '天', color: 'bg-red-100 text-red-700', days: daysUntil };
+            // 今日
+            if (daysUntil === 0) return { status: 'today', label: '今日复习', color: 'bg-yellow-100 text-yellow-700', days: daysUntil };
+            // 未来
+            return { status: 'future', label: '还有' + daysUntil + '天', color: 'bg-gray-100 text-gray-600', days: daysUntil };
+        }
+
+        // 艾宾浩斯遗忘曲线理论值
+        function ebbinghausRetention(days) {
+            return Math.exp(-days / 14) * 100;
+        }
+
+        // 个人记忆保留预测（基于SM-2的ef）
+        function personalRetention(days, ef) {
+            return Math.exp(-days / (14 * (ef - 1))) * 100;
+        }
+
+        function renderDashboard() {
+            const today = new Date();
+            const todayStr = today.toISOString().slice(0, 10);
+
+            // 统计
+            const mastered = items.filter(i => i.interval >= 30 && i.reps >= 5).length;
+            const todayReviewCount = items.filter(i => {
+                const nr = new Date(i.nextReview || i.date);
+                return nr.toISOString().slice(0, 10) === todayStr;
+            }).length;
+            const pending = items.filter(i => {
+                const status = getNextReviewStatus(i);
+                return status.status === 'overdue' || status.status === 'today';
+            }).length;
+            const totalReviews = items.reduce((sum, i) => sum + (i.qualityHistory?.length || 0), 0);
+            const avgQuality = items.length > 0 ? items.reduce((sum, i) => sum + (i.qualityHistory?.length > 0 ? i.qualityHistory.reduce((s, q) => s + q.quality, 0) / i.qualityHistory.length : 0), 0) / items.filter(i => i.qualityHistory?.length > 0).length : 0;
+            const masterRate = items.length > 0 ? Math.round((mastered / items.length) * 100) : 0;
+
+            document.getElementById('totalItems').textContent = items.length;
+            document.getElementById('todayReview').textContent = todayReviewCount;
+            document.getElementById('masterRate').textContent = masterRate + '%';
+            document.getElementById('pendingCount').textContent = pending;
+            document.getElementById('masteredCount').textContent = mastered;
+
+            // 今日提醒
+            const reminderDiv = document.getElementById('todayReminder');
+            if (todayReviewCount > 0) {
+                reminderDiv.innerHTML = `<span class="text-orange-600 font-medium"><i class="fa fa-exclamation-circle mr-1"></i>今日有 ${todayReviewCount} 条内容需要复习！</span>`;
+            } else if (pending > 0) {
+                reminderDiv.innerHTML = `<span class="text-yellow-600"><i class="fa fa-clock-o mr-1"></i>有 ${pending} 条内容逾期待复习。</span>`;
+            } else {
+                reminderDiv.innerHTML = `<span class="text-green-600"><i class="fa fa-check-circle mr-1"></i>今日无复习任务，可以学习新内容。</span>`;
+            }
+
+            // 遗忘曲线（理论）
+            if (curveChartInstance) curveChartInstance.destroy();
+            const days = Array.from({length: 31}, (_, i) => i);
+            const retentionCurve = days.map(d => ebbinghausRetention(d));
+            curveChartInstance = new Chart(document.getElementById('curveChart'), {
+                type: 'line',
+                data: {
+                    labels: days.map(d => d + '天'),
+                    datasets: [{ label: '理论遗忘曲线', data: retentionCurve, borderColor: '#ef4444', fill: false, tension: 0.4 }]
+                },
+                options: { responsive: true, scales: { y: { min: 0, max: 100, title: { display: true, text: '记忆保留率(%)' } } } }
+            });
+
+            // 分类分布
+            if (catChartInstance) catChartInstance.destroy();
+            const catCounts = CATEGORIES.map(c => items.filter(i => i.category === c).length);
+            catChartInstance = new Chart(document.getElementById('catChart'), { type: 'doughnut', data: { labels: CATEGORIES, datasets: [{ data: catCounts, backgroundColor: COLORS }] } });
+
+            // 个人掌握度预测曲线
+            if (predictChartInstance) predictChartInstance.destroy();
+            const avgEf = items.length > 0 ? items.reduce((s, i) => s + (i.ef || 2.5), 0) / items.length : 2.5;
+            const personalCurve = days.map(d => personalRetention(d, avgEf));
+            predictChartInstance = new Chart(document.getElementById('predictChart'), {
+                type: 'line',
+                data: {
+                    labels: days.map(d => d + '天'),
+                    datasets: [
+                        { label: '理论遗忘', data: retentionCurve, borderColor: '#ef4444', borderDash: [5, 5], fill: false },
+                        { label: '个人预测(平均ef=' + avgEf.toFixed(2) + ')', data: personalCurve, borderColor: '#3b82f6', fill: false, tension: 0.4 }
+                    ]
+                },
+                options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+            });
+
+            // 条目列表
+            const list = document.getElementById('itemList');
+            list.innerHTML = items.length === 0 ? '<div class="text-gray-400 text-center py-8">暂无学习记录</div>' :
+                items.sort((a, b) => new Date(a.nextReview || a.date) - new Date(b.nextReview || b.date)).map(i => {
+                    const status = getNextReviewStatus(i);
+                    const retention = personalRetention(Math.floor((today - new Date(i.lastReview || i.date)) / (1000*60*60*24)) || 0, i.ef || 2.5);
+                    const barColor = retention > 60 ? 'bg-green-500' : retention > 30 ? 'bg-yellow-500' : 'bg-red-500';
+                    return `<div class="flex items-center gap-3 p-3 bg-gray-50 rounded hover:bg-gray-100">
+                        <div class="flex-1"><div class="font-medium">${i.title} <span class="text-xs text-gray-500 px-2 py-0.5 bg-gray-200 rounded">${i.category}</span></div>
+                        <div class="text-xs text-gray-500">学习: ${i.date} | ef=${(i.ef||2.5).toFixed(2)} | 间隔=${i.interval||0}天 | 复习${i.reps||0}次</div>
+                        <div class="w-full bg-gray-200 rounded h-1.5 mt-1"><div class="${barColor} h-1.5 rounded" style="width:${Math.max(5, retention)}%"></div></div></div>
+                        <div class="text-right"><span class="text-xs px-2 py-1 rounded ${status.color}">${status.label}</span>
+                        <div class="text-sm font-bold mt-1 ${retention > 60 ? 'text-green-600' : retention > 30 ? 'text-yellow-600' : 'text-red-600'}">${retention.toFixed(0)}%</div></div>
+                        <button onclick="deleteItem(${i.id})" class="text-red-400 hover:text-red-600"><i class="fa fa-trash"></i></button>
+                    </div>`;
+                }).join('');
+        }
+
+        function renderReview() {
+            const today = new Date();
+            let reviewItems = items.filter(i => {
+                const status = getNextReviewStatus(i);
+                return status.status !== 'mastered';
+            }).map(i => {
+                const status = getNextReviewStatus(i);
+                return { ...i, status };
+            });
+
+            reviewItems.sort((a, b) => a.status.days - b.status.days);
+
+            const list = document.getElementById('reviewList');
+            list.innerHTML = reviewItems.length === 0 ?
+                '<div class="text-center py-12 text-gray-400"><i class="fa fa-check-circle text-5xl text-green-400 mb-3"></i><p>所有内容已掌握！继续学习新知识吧</p></div>' :
+                reviewItems.map(i => {
+                    const urgencyColor = i.status.status === 'overdue' ? 'border-red-500 bg-red-50' : i.status.status === 'today' ? 'border-yellow-500 bg-yellow-50' : 'border-gray-200';
+                    return `<div class="flex items-center gap-4 p-4 rounded border-l-4 ${urgencyColor}">
+                        <div class="flex-1"><div class="font-medium">${i.title} <span class="text-xs text-gray-500">(${i.category})</span></div>
+                        <div class="text-sm text-gray-500">学习于 ${i.date} | 复习${i.reps||0}次 | 间隔=${i.interval||0}天</div>
+                        <div class="text-sm ${i.status.days <= 0 ? 'text-red-600 font-medium' : 'text-gray-500'}">${i.status.label}</div></div>
+                        <div class="text-center text-sm">
+                            <div class="text-xs text-gray-400 mb-1">评分（0-5）</div>
+                            <div class="flex gap-1">
+                                ${[0,1,2,3,4,5].map(q => `<button onclick="markReview(${i.id}, ${q})" class="px-2 py-1 rounded text-xs ${q<3?'bg-red-100 text-red-600 hover:bg-red-200':q>=4?'bg-green-100 text-green-600 hover:bg-green-200':'bg-gray-100 text-gray-600 hover:bg-gray-200'}">${q}</button>`).join('')}
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+        }
+
+        function renderStats() {
+            const totalReviews = items.reduce((sum, i) => sum + (i.qualityHistory?.length || 0), 0);
+            document.getElementById('totalReviews').textContent = totalReviews;
+
+            const avgRetention = items.length > 0 ? items.reduce((sum, i) => {
+                const lastQ = i.qualityHistory?.length > 0 ? i.qualityHistory[i.qualityHistory.length-1].quality : 3;
+                return sum + lastQ * 20;
+            }, 0) / items.length : 0;
+            document.getElementById('avgRetention').textContent = avgRetention.toFixed(0) + '%';
+
+            const avgInterval = items.length > 0 ? items.reduce((s, i) => s + (i.interval || 0), 0) / items.length : 0;
+            document.getElementById('avgInterval').textContent = avgInterval.toFixed(1) + '天';
+
+            const maxInterval = Math.max(...items.map(i => i.interval || 0), 0);
+            document.getElementById('maxInterval').textContent = maxInterval + '天';
+
+            // 间隔分布
+            const intervals = items.map(i => i.interval || 0);
+            const dist = { '1天': intervals.filter(i => i === 1).length, '6天': intervals.filter(i => i === 6).length, '7-14天': intervals.filter(i => i >= 7 && i < 15).length, '15-30天': intervals.filter(i => i >= 15 && i < 31).length, '>30天': intervals.filter(i => i >= 31).length };
+            document.getElementById('intervalDist').innerHTML = Object.entries(dist).map(([k, v]) => `<div class="flex justify-between"><span>${k}</span><span class="font-medium">${v} 条</span></div>`).join('');
+        }
+
+        // ====== Notification API ======
+        function requestNotification() {
+            if (!('Notification' in window)) {
+                showToast('您的浏览器不支持通知功能');
+                return;
+            }
+            Notification.requestPermission().then(permission => {
+                if (permission === 'granted') {
+                    showToast('通知已开启');
+                    scheduleDailyNotification();
+                } else {
+                    showToast('通知权限被拒绝');
+                }
+            });
+        }
+
+        function scheduleDailyNotification() {
+            // 每分钟检查一次是否有复习任务
+            setInterval(() => {
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const todayReviewCount = items.filter(i => {
+                    const nr = new Date(i.nextReview || i.date);
+                    return nr.toISOString().slice(0, 10) === todayStr;
+                }).length;
+                if (todayReviewCount > 0 && Notification.permission === 'granted') {
+                    new Notification('知识复习提醒', { body: `今日有 ${todayReviewCount} 条内容需要复习！`, icon: 'fa-brain' });
+                }
+            }, 60000);
+        }
+
+        function showToast(msg) {
+            const existing = document.querySelector('.toast-notice');
+            if (existing) existing.remove();
+            const toast = document.createElement('div');
+            toast.className = 'toast-notice fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white px-5 py-3 rounded-lg shadow-lg text-sm z-50 transition-all duration-300';
+            toast.style.opacity = '0';
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            requestAnimationFrame(() => { toast.style.opacity = '1'; });
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2000);
+        }
+
+        // ========== Anki格式导入/导出 ==========
+        function renderAnkiPanel() {
+            // 初始化面板，无需额外渲染
+        }
+
+        function exportAnkiFormat() {
+            // Anki文本格式：标题\t分类\t学习日期\t难度\tef\tinterval\treps\tnextReview\t笔记
+            const lines = items.map(i => {
+                return [
+                    i.title,
+                    i.category,
+                    i.date,
+                    i.difficulty || 5,
+                    i.ef || 2.5,
+                    i.interval || 0,
+                    i.reps || 0,
+                    i.nextReview || i.date,
+                    i.note || ''
+                ].join('\t');
+            });
+            const header = '标题\t分类\t学习日期\t难度\tef\tinterval\treps\t下次复习\t笔记';
+            const output = header + '\n' + lines.join('\n');
+            document.getElementById('ankiExportArea').value = output;
+            showToast('已导出 ' + items.length + ' 条学习记录');
+        }
+
+        function copyAnkiExport() {
+            const text = document.getElementById('ankiExportArea').value;
+            if (!text) {
+                showToast('请先点击导出');
+                return;
+            }
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('已复制到剪贴板');
+            }).catch(() => {
+                // fallback
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                showToast('已复制到剪贴板');
+            });
+        }
+
+        function loadAnkiFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('ankiImportArea').value = e.target.result;
+                showToast('文件已加载：' + file.name);
+            };
+            reader.readAsText(file);
+        }
+
+        function importAnkiFormat() {
+            const text = document.getElementById('ankiImportArea').value.trim();
+            if (!text) {
+                showToast('请粘贴或上传Anki格式数据');
+                return;
+            }
+            const lines = text.split('\n').filter(l => l.trim());
+            let imported = 0, skipped = 0;
+
+            lines.forEach((line, idx) => {
+                // 跳过表头行
+                if (idx === 0 && line.includes('标题')) return;
+
+                const fields = line.split('\t');
+                if (fields.length < 3) {
+                    skipped++;
+                    return;
+                }
+
+                const title = fields[0].trim();
+                const category = fields[1] || '其他';
+                const date = fields[2] || new Date().toISOString().slice(0, 10);
+                const difficulty = parseInt(fields[3]) || 5;
+                const ef = parseFloat(fields[4]) || 2.5;
+                const interval = parseInt(fields[5]) || 0;
+                const reps = parseInt(fields[6]) || 0;
+                const nextReview = fields[7] || date;
+                const note = fields[8] || '';
+
+                if (!title) {
+                    skipped++;
+                    return;
+                }
+
+                // 检查是否已存在（避免重复导入）
+                const existing = items.find(i => i.title === title);
+                if (existing) {
+                    // 更现现有记录
+                    existing.category = category;
+                    existing.difficulty = difficulty;
+                    existing.ef = ef;
+                    existing.interval = interval;
+                    existing.reps = reps;
+                    existing.nextReview = nextReview;
+                    existing.note = note;
+                } else {
+                    // 新增记录
+                    items.push({
+                        id: Date.now() + imported,
+                        title,
+                        category,
+                        date,
+                        difficulty,
+                        ef: Math.max(1.3, ef),
+                        interval,
+                        reps,
+                        nextReview,
+                        note,
+                        qualityHistory: []
+                    });
+                }
+                imported++;
+            });
+
+            save();
+            renderDashboard();
+            showToast('导入成功：' + imported + ' 条，跳过：' + skipped + ' 条');
+        }
+
+        // ========== 学习效率分析报告 ==========
+        function renderEfficiency() {
+            const reportEl = document.getElementById('efficiencyReport');
+
+            if (items.length === 0) {
+                reportEl.innerHTML = '<div class="text-center py-12 text-gray-400"><i class="fa fa-info-circle text-4xl mb-3"></i><p>暂无学习数据，请先添加学习内容</p></div>';
+                return;
+            }
+
+            // 计算各项效率指标
+            const totalReviews = items.reduce((sum, i) => sum + (i.qualityHistory?.length || 0), 0);
+            const avgEf = items.reduce((s, i) => s + (i.ef || 2.5), 0) / items.length;
+            const avgInterval = items.reduce((s, i) => s + (i.interval || 0), 0) / items.length;
+            const mastered = items.filter(i => i.interval >= 30 && i.reps >= 5).length;
+            const masteredRate = (mastered / items.length * 100).toFixed(1);
+
+            // 计算平均质量分数
+            const avgQuality = totalReviews > 0 ?
+                items.reduce((s, i) => s + (i.qualityHistory?.reduce((qs, q) => qs + q.quality, 0) || 0), 0) / totalReviews : 0;
+
+            // 按分类分析效率
+            const catStats = {};
+            CATEGORIES.forEach(c => {
+                const catItems = items.filter(i => i.category === c);
+                if (catItems.length > 0) {
+                    const catReviews = catItems.reduce((s, i) => s + (i.qualityHistory?.length || 0), 0);
+                    const catEf = catItems.reduce((s, i) => s + (i.ef || 2.5), 0) / catItems.length;
+                    const catMastered = catItems.filter(i => i.interval >= 30 && i.reps >= 5).length;
+                    catStats[c] = {
+                        count: catItems.length,
+                        reviews: catReviews,
+                        avgEf: catEf.toFixed(2),
+                        masteredRate: (catMastered / catItems.length * 100).toFixed(1)
+                    };
+                }
+            });
+
+            // 计算学习效率评分（综合指标）
+            const efficiencyScore = (
+                (avgQuality / 5 * 30) +          // 复习质量权重30%
+                (avgEf / 2.5 * 20) +             // ef因子权重20%
+                (parseFloat(masteredRate) / 100 * 25) + // 掌握率权重25%
+                (Math.min(avgInterval / 30, 1) * 25)    // 平均间隔权重25%
+            ).toFixed(1);
+
+            // 生成效率等级
+            let efficiencyLevel, efficiencyColor, efficiencyTips;
+            if (efficiencyScore >= 80) {
+                efficiencyLevel = '优秀';
+                efficiencyColor = 'bg-emerald-100 text-emerald-700';
+                efficiencyTips = '你的学习效率非常出色，继续保持当前的复习节奏。';
+            } else if (efficiencyScore >= 60) {
+                efficiencyLevel = '良好';
+                efficiencyColor = 'bg-blue-100 text-blue-700';
+                efficiencyTips = '学习效率良好，可以适当增加复习频率或关注薄弱知识点。';
+            } else if (efficiencyScore >= 40) {
+                efficiencyLevel = '一般';
+                efficiencyColor = 'bg-yellow-100 text-yellow-700';
+                efficiencyTips = '效率有待提升，建议调整复习策略，专注于评分较低的条目。';
+            } else {
+                efficiencyLevel = '需改进';
+                efficiencyColor = 'bg-red-100 text-red-700';
+                efficiencyTips = '学习效率较低，建议：1) 每日坚持复习；2) 复习时专注理解；3) 合理安排学习时间。';
+            }
+
+            // 计算最活跃的学习时段（基于qualityHistory的日期）
+            const reviewDates = {};
+            items.forEach(i => {
+                i.qualityHistory?.forEach(q => {
+                    const hour = new Date(q.date).getHours();
+                    reviewDates[hour] = (reviewDates[hour] || 0) + 1;
+                });
+            });
+            const peakHour = Object.entries(reviewDates).sort((a, b) => b[1] - a[1])[0];
+            const peakHourText = peakHour ? `${peakHour[0]}点 (${peakHour[1]}次)` : '暂无数据';
+
+            // 生成报告HTML
+            let html = `
+                <!-- 效率评分概览 -->
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-5 mb-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h4 class="font-bold text-gray-800 mb-1">综合效率评分</h4>
+                            <div class="text-3xl font-bold text-indigo-700">${efficiencyScore}<span class="text-sm text-gray-500">/100</span></div>
+                        </div>
+                        <div class="text-right">
+                            <span class="px-3 py-1 rounded-full ${efficiencyColor} font-semibold">${efficiencyLevel}</span>
+                        </div>
+                    </div>
+                    <p class="text-sm text-gray-600 mt-3"><i class="fa fa-lightbulb-o text-yellow-500 mr-1"></i>${efficiencyTips}</p>
+                </div>
+
+                <!-- 核心指标 -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div class="bg-white border rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">平均复习质量</div>
+                        <div class="text-lg font-bold text-blue-600">${avgQuality.toFixed(1)}/5</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">平均EF因子</div>
+                        <div class="text-lg font-bold text-purple-600">${avgEf.toFixed(2)}</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">掌握率</div>
+                        <div class="text-lg font-bold text-green-600">${masteredRate}%</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">最活跃时段</div>
+                        <div class="text-lg font-bold text-amber-600">${peakHourText}</div>
+                    </div>
+                </div>
+
+                <!-- 分类效率对比 -->
+                <div class="bg-white border rounded-lg p-4 mb-4">
+                    <h4 class="font-bold mb-3"><i class="fa fa-tags mr-1 text-blue-500"></i>分类效率对比</h4>
+                    <div class="space-y-2">
+                        ${Object.entries(catStats).map(([cat, stat]) => `
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm text-gray-600 w-20">${cat}</span>
+                                <div class="flex-1 flex items-center gap-2">
+                                    <div class="w-16 text-xs text-gray-500">${stat.count}条</div>
+                                    <div class="w-16 text-xs text-gray-500">${stat.reviews}次</div>
+                                    <div class="flex-1 h-2 bg-gray-200 rounded">
+                                        <div class="h-2 rounded ${parseFloat(stat.masteredRate) > 50 ? 'bg-green-500' : parseFloat(stat.masteredRate) > 20 ? 'bg-yellow-500' : 'bg-red-500'}" style="width:${stat.masteredRate}%"></div>
+                                    </div>
+                                    <span class="text-xs font-medium ${parseFloat(stat.masteredRate) > 50 ? 'text-green-600' : 'text-gray-600'}">${stat.masteredRate}%</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- 个性化建议 -->
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <h4 class="font-bold text-yellow-800 mb-2"><i class="fa fa-star mr-1"></i>个性化学习建议</h4>
+                    <ul class="text-sm text-yellow-700 space-y-1">
+                        ${avgQuality < 3 ? '<li><i class="fa fa-exclamation-circle mr-1"></i>复习质量偏低，建议复习时更专注理解，避免机械记忆。</li>' : ''}
+                        ${avgInterval < 7 ? '<li><i class="fa fa-clock-o mr-1"></i>平均复习间隔较短，说明很多内容处于初级阶段，坚持复习会逐步延长间隔。</li>' : ''}
+                        ${masteredRate < 30 ? '<li><i class="fa fa-line-chart mr-1"></i>掌握率较低，建议每日完成待复习任务，逐步积累掌握条目。</li>' : ''}
+                        ${peakHour ? `<li><i class="fa fa-sun-o mr-1"></i>你在${peakHour[0]}点学习效率最高，建议将重要学习安排在此时段。</li>` : ''}
+                        <li><i class="fa fa-calendar-check-o mr-1"></i>保持每日复习习惯，SM-2算法会根据你的表现自动优化复习间隔。</li>
+                    </ul>
+                </div>
+            `;
+
+            reportEl.innerHTML = html;
+        }
+
+        document.getElementById('learnDate').value = new Date().toISOString().slice(0,10);
+
+        // 检查通知状态
+        if ('Notification' in window && Notification.permission === 'granted') {
+            document.getElementById('notifBtn').innerHTML = '<i class="fa fa-bell"></i> 通知已开启';
+            document.getElementById('notifBtn').className = 'text-sm px-3 py-1 bg-green-100 text-green-700 rounded';
+        }
+
+        renderDashboard();
+    </script>
+</body>
+</html>
